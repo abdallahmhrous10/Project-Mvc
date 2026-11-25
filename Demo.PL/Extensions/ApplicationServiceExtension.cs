@@ -1,5 +1,6 @@
 ﻿using Demo.BLL.Implementation;
 using Demo.BLL.Interfaces;
+using Demo.BLL.Services;
 using Demo.DAL.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +16,7 @@ namespace Demo.PL.Extensions
             });
 
             services.AddScoped<IUnitOfWork,UnitOfWork>();
+            services.AddScoped<IDepartmentService, DepartmentService>();
 
             return services;
         }
