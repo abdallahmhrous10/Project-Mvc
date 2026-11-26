@@ -48,17 +48,22 @@ namespace Demo.BLL.Services
         }
         public async Task<Result<Department>> UpdateAsync(Department department)
         {
-            var existingDepartment = await _unitOfWork.Departments.GetAsync(department.Id);
+            var existingDepartment =
+                await _unitOfWork.Departments.GetAsync(department.Id);
 
             if (existingDepartment is null)
             {
                 return Result<Department>.Failure("Department Not Found");
             }
 
-             _unitOfWork.Departments.Update(department);
+            // Update existing tracked entity
+            existingDepartment.Code = department.Code;
+            existingDepartment.Name = department.Name;
+            existingDepartment.DateOfCreation = department.DateOfCreation;
 
             await _unitOfWork.SaveChangesAsync();
-            return Result<Department>.Success(department);
+
+            return Result<Department>.Success(existingDepartment);
         }
 
         public async Task<Result<Department>> DeleteAsync(int id)

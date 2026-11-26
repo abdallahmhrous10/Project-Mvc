@@ -7,6 +7,7 @@ namespace Demo.BLL.Interfaces
     public interface IUnitOfWork
     {
         IDepartmentRepository Departments { get; }
+        IEmployeeRepository Employees { get; }
 
         Task<int> SaveChangesAsync();
     }

@@ -30,5 +30,20 @@ namespace Demo.BLL.Models
             return new PaginatedList<T>(Items.Skip((pageindex - 1) * pagesize).Take(pagesize),Items.Count, pageindex, pagesize);
 
         }
+
+
+        public static PaginatedList<T> Create(
+            IEnumerable<T> items,
+            int totalCount,
+            int pageIndex,
+            int pageSize)
+        {
+            return new PaginatedList<T>(
+                items,
+                totalCount,
+                pageIndex,
+                pageSize);
+        }
+
     }
 }

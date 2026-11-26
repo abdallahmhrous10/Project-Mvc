@@ -1,4 +1,5 @@
 ﻿using Demo.BLL.Interfaces;
+using Demo.BLL.Services;
 using Demo.DAL.Models;
 using Microsoft.AspNetCore.Mvc;
 
@@ -72,5 +73,53 @@ namespace Demo.PL.Controllers
                 id,
                 nameof(Details));
         }
+
+        public async Task<IActionResult> Edit(int? id)
+         => await DepartmentControllerHandlerAsync(
+        id, nameof(Edit));
+
+            [HttpPost]
+            public async Task<IActionResult> Edit(
+             [FromRoute] int id,
+             Department department)
+            {
+                if (id != department.Id)
+                    return BadRequest();
+
+                if (ModelState.IsValid)
+                {
+                    var result =
+                        await _departmentsService.UpdateAsync(department);
+
+                    if (result.Succeeded != true)
+                        ModelState.AddModelError(
+                            string.Empty, result.Error ?? "Update failed.");
+                    else
+                        return RedirectToAction(nameof(Index));
+                }
+
+                return View(department);
+            }
+
+        public async Task<IActionResult> Delete(int? id)
+        => await DepartmentControllerHandlerAsync(
+            id, nameof(Delete));
+
+        [HttpPost, ActionName("Delete")]
+        public async Task<IActionResult> ConfirmDelete(int? id)
+        {
+            if (!id.HasValue)
+                return BadRequest();
+
+            var result =
+                await _departmentsService.DeleteAsync(id.Value);
+
+            if (result.Succeeded != true || result.Data is null)
+                return NotFound();
+
+            return RedirectToAction(nameof(Index));
+        }
+
+
     }
 }

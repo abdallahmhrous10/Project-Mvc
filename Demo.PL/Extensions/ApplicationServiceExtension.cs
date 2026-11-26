@@ -3,6 +3,7 @@ using Demo.BLL.Interfaces;
 using Demo.BLL.Services;
 using Demo.DAL.Data;
 using Microsoft.EntityFrameworkCore;
+using System.Reflection;
 
 namespace Demo.PL.Extensions
 {
@@ -17,6 +18,10 @@ namespace Demo.PL.Extensions
 
             services.AddScoped<IUnitOfWork,UnitOfWork>();
             services.AddScoped<IDepartmentService, DepartmentService>();
+            services.AddScoped<IEmployeeService, EmployeeService>();
+
+            services.AddAutoMapper(config =>
+                config.AddMaps(Assembly.GetEntryAssembly()));
 
             return services;
         }
