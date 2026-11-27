@@ -34,6 +34,7 @@ namespace Demo.PL.ViewModels
 
         public Department? Department { get; set; }
 
+        [Required(ErrorMessage = "Please select a department.")]
         public int? DepartmentId { get; set; }
     }
 }

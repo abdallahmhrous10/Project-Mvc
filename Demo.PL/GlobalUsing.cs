@@ -4,3 +4,4 @@ global using Demo.BLL.Models;
 global using Demo.DAL.Data;
 global using Demo.DAL.Models;
 global using Microsoft.EntityFrameworkCore;
+global using Demo.PL.ViewModels;
