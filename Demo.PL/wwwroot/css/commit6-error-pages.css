@@ -1,0 +1,12 @@
+/* Commit 6: custom error pages */
+.error-page {
+    padding: 5rem 1rem;
+}
+
+.error-page__code {
+    color: #258cfb;
+    font-size: clamp(5rem, 18vw, 10rem);
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 1rem;
+}

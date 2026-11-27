@@ -1,4 +1,7 @@
-﻿
+using System;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using AutoMapper;
 using Demo.BLL.Interfaces;
 using Demo.BLL.Models;
@@ -6,12 +9,9 @@ using Demo.DAL.Models;
 using Demo.PL.Utilities;
 using Demo.PL.ViewModels;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Rendering;
-using System;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace Demo.PL.Controllers
 {
@@ -20,12 +20,9 @@ namespace Demo.PL.Controllers
         private const int PageSize = 10;
         private const int MaxImageSize = 5 * 1024 * 1024;
 
-        private static readonly string[] AllowedExtensions =
+        private static readonly string[] AllowedImageExtensions =
         {
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".webp"
+            ".jpg", ".jpeg", ".png", ".webp"
         };
 
         private readonly IEmployeeService _employeeService;
@@ -45,7 +42,6 @@ namespace Demo.PL.Controllers
             _environment = environment;
         }
 
-        // GET: Employees
         [HttpGet]
         public async Task<IActionResult> Index(
             string? searchValue,
@@ -56,12 +52,11 @@ namespace Demo.PL.Controllers
                 pageIndex,
                 PageSize);
 
-            if ( result.Succeeded != true || result.Data is null)
-                return Problem(result.Error);
+            if (result.Succeeded != true || result.Data is null)
+                return Problem(result.Error ?? "Unable to load employees.");
 
-            var employees =
-                _mapper.Map<IEnumerable<EmployeeViewModel>>(
-                    result.Data);
+            var employees = _mapper.Map<IEnumerable<EmployeeViewModel>>(
+                result.Data);
 
             var model = PaginatedList<EmployeeViewModel>.Create(
                 employees,
@@ -72,130 +67,220 @@ namespace Demo.PL.Controllers
             return View(model);
         }
 
-        // Load Departments
         private async Task LoadDepartmentsAsync()
         {
-            var result = await _departmentService.GetallAsync(
-                1, int.MaxValue);
+            // Keep the method name used by the current project.
+            var result = await _departmentService.GetallAsync(1, int.MaxValue);
 
             var departments = result.Data
                 ?? PaginatedList<Department>.Create(
                     Enumerable.Empty<Department>(), 1, 1);
 
             ViewBag.Departments = new SelectList(
-                departments,
-                "Id",
-                "Name");
+                departments, "Id", "Name");
         }
 
-        // GET: Employees/Create
+        private static bool IsValidImage(IFormFile? image)
+        {
+            if (image is null || image.Length == 0)
+                return true;
+
+            var extension = Path.GetExtension(image.FileName)
+                .ToLowerInvariant();
+
+            return AllowedImageExtensions.Contains(extension)
+                && image.Length <= MaxImageSize;
+        }
+
+        private async Task<string?> UploadImageIfProvidedAsync(
+            IFormFile? image)
+        {
+            if (image is null || image.Length == 0)
+                return null;
+
+            return await DocumentSettings.UploadFileAsync(
+                image,
+                "Images",
+                _environment.WebRootPath);
+        }
+
+        private void DeleteImageIfPresent(string? imageName)
+        {
+            if (!string.IsNullOrWhiteSpace(imageName))
+            {
+                DocumentSettings.DeleteFile(
+                    imageName,
+                    "Images",
+                    _environment.WebRootPath);
+            }
+        }
+
         [HttpGet]
         public async Task<IActionResult> Create()
         {
             await LoadDepartmentsAsync();
-
             return View();
         }
 
-        // POST: Employees/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
         public async Task<IActionResult> Create(
             EmployeeViewModel employeeVM)
         {
-            if (!ModelState.IsValid)
+            if (!ModelState.IsValid || !IsValidImage(employeeVM.Image))
             {
-                await LoadDepartmentsAsync();
-                return View(employeeVM);
-            }
-
-            // Validate and upload image
-            if (employeeVM.Image is not null &&
-                employeeVM.Image.Length > 0)
-            {
-                string extension = Path.GetExtension(
-                    employeeVM.Image.FileName).ToLowerInvariant();
-
-                if (!AllowedExtensions.Contains(extension) ||
-                    employeeVM.Image.Length > MaxImageSize)
+                if (!IsValidImage(employeeVM.Image))
                 {
                     ModelState.AddModelError(
                         nameof(employeeVM.Image),
-                        "Please upload a valid image up to 5 MB.");
+                        "Choose a JPG, JPEG, PNG, or WEBP image no larger than 5 MB.");
+                }
+
+                await LoadDepartmentsAsync();
+                return View(employeeVM);
+            }
+
+            string? uploadedImageName = null;
+            try
+            {
+                uploadedImageName = await UploadImageIfProvidedAsync(
+                    employeeVM.Image);
+
+                if (uploadedImageName is not null)
+                    employeeVM.ImageName = uploadedImageName;
+
+                var employee = _mapper.Map<Employee>(employeeVM);
+                var result = await _employeeService.CreateAsync(employee);
+
+                if (result.Succeeded != true)
+                {
+                    DeleteImageIfPresent(uploadedImageName);
+
+                    ModelState.AddModelError(
+                        string.Empty,
+                        result.Error ?? "Unable to create employee.");
 
                     await LoadDepartmentsAsync();
-
                     return View(employeeVM);
                 }
 
-                employeeVM.ImageName =
-                    await DocumentSettings.UploadFileAsync(
-                        employeeVM.Image,
-                        "Images",
-                        _environment.WebRootPath);
+                return RedirectToAction(nameof(Index));
             }
-
-            // Map ViewModel to Employee
-            var employee = _mapper.Map<Employee>(employeeVM);
-
-            // Save employee
-            var result = await _employeeService.CreateAsync(employee);
-
-            if (result.Succeeded != true)
+            catch (Exception)
             {
-                // Delete uploaded image if database save fails
-                if (!string.IsNullOrWhiteSpace(employeeVM.ImageName))
+                // Avoid leaving an uploaded file behind if saving fails.
+                DeleteImageIfPresent(uploadedImageName);
+                throw;
+            }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Details(int? id)
+            => await EmployeeControllerHandlerAsync(id, nameof(Details));
+
+        [HttpGet]
+        public async Task<IActionResult> Edit(int? id)
+            => await EmployeeControllerHandlerAsync(id, nameof(Edit));
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> Edit(
+            [FromRoute] int id,
+            EmployeeViewModel employeeVM)
+        {
+            if (id != employeeVM.Id)
+                return BadRequest();
+
+            var existingResult = await _employeeService.GetByIdAsync(id);
+            if (existingResult.Succeeded != true || existingResult.Data is null)
+                return NotFound();
+
+            var existingEmployee = existingResult.Data;
+
+            if (!ModelState.IsValid || !IsValidImage(employeeVM.Image))
+            {
+                if (!IsValidImage(employeeVM.Image))
                 {
-                    DocumentSettings.DeleteFile(
-                        employeeVM.ImageName,
-                        "Images",
-                        _environment.WebRootPath);
+                    ModelState.AddModelError(
+                        nameof(employeeVM.Image),
+                        "Choose a JPG, JPEG, PNG, or WEBP image no larger than 5 MB.");
                 }
 
-                ModelState.AddModelError(
-                    string.Empty,
-                    result.Error ?? "Unable to create employee.");
-
                 await LoadDepartmentsAsync();
-
                 return View(employeeVM);
             }
+
+            var oldImageName = existingEmployee.ImageName;
+            string? newImageName = null;
+
+            try
+            {
+                newImageName = await UploadImageIfProvidedAsync(
+                    employeeVM.Image);
+
+                // Keep the old image when the user does not upload a replacement.
+                employeeVM.ImageName = newImageName ?? oldImageName;
+
+                // Map into the tracked entity so fields not present on the ViewModel
+                // (such as audit fields) are not needlessly reset.
+                _mapper.Map(employeeVM, existingEmployee);
+
+                var result = await _employeeService.UpdateAsync(existingEmployee);
+
+                if (result.Succeeded != true)
+                {
+                    DeleteImageIfPresent(newImageName);
+                    ModelState.AddModelError(
+                        string.Empty,
+                        result.Error ?? "Unable to update employee.");
+
+                    await LoadDepartmentsAsync();
+                    return View(employeeVM);
+                }
+
+                // Remove the old image only after the database update succeeds.
+                if (newImageName is not null &&
+                    !string.IsNullOrWhiteSpace(oldImageName) &&
+                    !string.Equals(oldImageName, newImageName, StringComparison.OrdinalIgnoreCase))
+                {
+                    DeleteImageIfPresent(oldImageName);
+                }
+
+                return RedirectToAction(nameof(Index));
+            }
+            catch
+            {
+                // If the operation failed before the update completed, remove the new upload.
+                DeleteImageIfPresent(newImageName);
+                throw;
+            }
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> Delete(int? id)
+            => await EmployeeControllerHandlerAsync(id, nameof(Delete));
+
+        [HttpPost, ActionName("Delete")]
+        [ValidateAntiForgeryToken]
+        public async Task<IActionResult> ConfirmDelete(int? id)
+        {
+            if (!id.HasValue)
+                return BadRequest();
+
+            var result = await _employeeService.DeleteAsync(id.Value);
+
+            if (result.Succeeded != true || result.Data is null)
+                return NotFound();
+
+            // Delete the stored image only after the employee row was deleted.
+            DeleteImageIfPresent(result.Data.ImageName);
 
             return RedirectToAction(nameof(Index));
         }
 
-        // GET: Employees/Details/id
-        [HttpGet]
-        public async Task<IActionResult> Details(int? id)
-        {
-            return await EmployeeControllerHandlerAsync(
-                id,
-                nameof(Details));
-        }
-
-        // GET: Employees/Edit/id
-        [HttpGet]
-        public async Task<IActionResult> Edit(int? id)
-        {
-            return await EmployeeControllerHandlerAsync(
-                id,
-                nameof(Edit));
-        }
-
-        // GET: Employees/Delete/id
-        [HttpGet]
-        public async Task<IActionResult> Delete(int? id)
-        {
-            return await EmployeeControllerHandlerAsync(
-                id,
-                nameof(Delete));
-        }
-
-        // Shared Handler
-        private async Task<IActionResult>
-            EmployeeControllerHandlerAsync(
-                int? id,
-                string viewName)
+        private async Task<IActionResult> EmployeeControllerHandlerAsync(
+            int? id,
+            string viewName)
         {
             if (!id.HasValue)
                 return BadRequest();
@@ -203,15 +288,12 @@ namespace Demo.PL.Controllers
             if (viewName == nameof(Edit))
                 await LoadDepartmentsAsync();
 
-            var result =
-                await _employeeService.GetByIdAsync(id.Value);
+            var result = await _employeeService.GetByIdAsync(id.Value);
 
             if (result.Succeeded != true || result.Data is null)
                 return NotFound();
 
-            var employeeVM =
-                _mapper.Map<EmployeeViewModel>(result.Data);
-
+            var employeeVM = _mapper.Map<EmployeeViewModel>(result.Data);
             return View(viewName, employeeVM);
         }
     }
